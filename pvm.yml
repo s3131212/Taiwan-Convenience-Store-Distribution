@@ -1,0 +1,143 @@
+__version__: 0.2
+1:
+  rstudioapi: 0.7
+  proto: 0.3-10
+  yaml: 2.2.0
+  bitops: 1.0-6
+  BH: 1.60.0-1
+  bindr: 0.1.1
+  labeling: 0.3
+  magrittr: 1.5
+  whisker: 0.3-2
+  plogr: 0.2.0
+  praise: 1.0.0
+  openssl: 1.1
+2:
+  rjson: 0.2.20
+  rprojroot: 1.0-2
+  base64enc: 0.1-3
+  fansi: 0.4.0
+  codetools: 0.2-15
+  packrat: 0.5.0
+  png: 0.1-7
+  clipr: 0.2.0
+  assertthat: 0.2.0
+  lazyeval: 0.2.1
+  formatR: 1.3
+  sourcetools: 0.1.7
+  xfun: 0.4
+  mime: 0.6
+  getPass: 0.2-2
+  RColorBrewer: 1.1-2
+  curl: 3.3
+  highr: 0.7
+  caTools: 1.17.1.1
+  nycflights13: 0.1
+  rlang: 0.3.1
+  pkgconfig: 2.0.2
+  R6: 2.3.0
+  utf8: 1.1.4
+  jpeg: 0.1-8
+  digest: 0.6.18
+  viridisLite: 0.3.0
+  subprocess: 0.8.3
+3:
+  markdown: 0.9
+  gtable: 0.2.0
+  maps: 3.1.0
+  tinytex: 0.10
+  PKI: 0.1-5.1
+  memoise: 1.1.0
+4:
+  dichromat: 2.0-0
+  cluster: 2.0.7-1
+  mapproj: 1.2-4
+  spatial: 7.3-11
+  gridExtra: 2.3
+  rpart: 4.1-13
+  stringi: 1.2.4
+  boot: 1.3-20
+  lattice: 0.20-35
+  withr: 2.1.2
+  nnet: 7.3-12
+  KernSmooth: 2.23-15
+  xtable: 1.8-3
+5:
+  colorspace: 1.4-0
+  hexbin: 1.27.2
+  remotes: 1.1.1
+  jsonlite: 1.6
+  backports: 1.0.2
+  Matrix: 1.2-14
+  glue: 1.3.0
+  rappdirs: 0.3.1
+  Rcpp: 1.0.0
+  RJSONIO: 1.3-0
+  nlme: 3.1-137
+  XML: 3.98-1.16
+  MASS: 7.3-50
+  RgoogleMaps: 1.4.3
+  evaluate: 0.12
+  DBI: 0.3.1
+  foreign: 0.8-70
+  RCurl: 1.95-4.10
+  sp: 1.2-2
+  crayon: 1.3.4
+  data.table: 1.12.0
+  git2r: 0.14.0
+6:
+  class: 7.3-14
+  rsconnect: 0.8.13
+  xml2: 0.1.2
+  semver: 0.2.0
+  httr: 1.4.0
+  googleVis: 0.5.10
+  cli: 1.0.1
+  later: 0.7.5
+  htmltools: 0.3.6
+  bindrcpp: 0.2.2
+  raster: 2.8-4
+  stringr: 1.3.1
+  geosphere: 1.5-1
+  RSQLite: 1.0.0
+  plyr: 1.8.4
+  mgcv: 1.8-24
+  survival: 2.42-3
+  munsell: 0.5.0
+7:
+  docopt: 0.4.3.3
+  knitr: 1.21
+  binman: 0.1.1
+  reshape2: 1.4.3
+  testthat: 2.0.1
+  devtools: 1.10.0
+  scales: 1.0.0
+  Nippon: 0.7.1
+  promises: 1.0.1
+  reshape: 0.8.5
+  htmlwidgets: 1.3
+  pillar: 1.3.1
+8:
+  swirl: 101.5.7
+  wdman: 0.2.4
+  tibble: 2.0.1
+  rmarkdown: 1.11
+  httpuv: 1.4.5
+9:
+  RSelenium: 1.7.4
+  shiny: 1.2.0
+  ggplot2: 3.1.0
+  purrr: 0.2.5
+10:
+  crosstalk: 1.0.0
+  tidyselect: 0.2.5
+  GGally: 1.0.1
+  viridis: 0.5.1
+11:
+  leaflet: 2.0.2
+  dplyr: 0.7.8
+12:
+  ggmap: github::repo=dkahle/ggmap@4dfe5165c6750be39250e2b3cd51c71e695b32c3
+  tidyr: 0.8.2
+13:
+  plotly: 4.8.0

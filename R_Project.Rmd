@@ -1,0 +1,319 @@
+---
+title: "便利超商分布分析"
+author: "Allen Chou"
+date: "2019/1/17"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+library(plyr)
+library(dplyr)
+library(Nippon)
+library(stringr)
+library(stringi)
+library(jsonlite)
+library(ggplot2)
+library(ggmap)
+library(plotly)
+library(leaflet)
+register_google(key = "<Google API Key>")
+```
+# 動機
+台灣眾所皆知的是個便利超商密集的地方，其中又以 7-11、全家、萊爾富、OK 為四大超商。此外，我們普遍認為台北市是全台超商最密集的地方，生活機能最方便，「晚上有很多宵夜可以吃」，本專題希望能去分析四大超商在全台各地的分布，來驗證這個普遍觀點是否是正確的，以及超商分布的城鄉差距是否有很嚴重。
+
+# 分析數據來源
+[全國4大超商資料集](https://data.gov.tw/dataset/32086) - 由 經濟部商業司 以 政府資料開放授權條款-第1版 釋出  
+<!-- P.S. 這份資料挺雷的，良心建議自己寫爬蟲去爬超商網站 -->
+[人口統計資料](https://www.ris.gov.tw/app/portal/346) - 由 內政部戶政司 釋出  
+[土地統計資料](https://web.archive.org/web/20131007024250/http://www.moi.gov.tw/stat/month.aspx) - 由 內政部統計處 釋出  
+[Google Maps Platform](https://cloud.google.com/maps-platform/) - 由 Google 開放使用  
+
+# 分析過程
+
+## 資料整理
+經濟部所公布的四大超商資料集中有些缺陷需要先做處理，幾個需要處理的項目大致如下：  
+
+- 只有「分公司狀態」為 1 的資料才是真實存在的（可使用 `dplyr` 的 `filter` 排除無效資料）  
+- 地址中有出現全形符號（如：「新北市三峽區鳶山里十二鄰中山路１８６號１樓」），需先轉為半形後續會比較好整理  
+- 以中文表示的數字需要轉為阿拉伯數字，如「嘉義市西區福全里三十四鄰八德路七十三號」應轉為「嘉義市西區福全里三十四鄰八德路 73 號」  
+- 資料中出現多種異體字（如「台」和「臺」）  
+- 縣轄市地址表達不一（同樣是彰化縣彰化市，有「彰化縣彰化市南興里天祥路359號1樓」，也有「彰化市民權路２４５號１樓」），應統一表達成以縣名為首（如「彰化縣彰化市」）  
+- 直轄市改制沒有更新完全（仍有「台北縣」等已不存在的縣市）  
+
+我們可以先以以下方式讀取「全國4大超商資料集」  
+```{r}
+shop_data <- read.table("~/Desktop/R_Project/shop_data.csv", header = TRUE, sep = ",", encoding = "UTF-8", stringsAsFactors = FALSE)
+```
+
+接著為了處理上述問題，可以用以下程式整理資料  
+```{r}
+# 選出只有狀態為 1 的數據
+shop_data <- shop_data %>%
+    filter(分公司狀態 == "1") %>%
+    select(公司名稱, 分公司統一編號, 分公司地址)
+
+# 中文字轉數字
+# 程式碼修改自：https://www.ptt.cc/bbs/R_Language/M.1466006460.A.4DC.html
+chinese2digits <- function(x){
+ vals <- sapply(str_split(x, "")[[1]], function(chi_digit){
+   mapvalues(chi_digit, c("零", "一", "二", "三", "四", "五", "六", "七", "八", "九",
+                          "十", "百", "千", "萬", "億"), c(0:10, 10^c(2,3,4,8)), FALSE)
+ }) %>% as.integer
+ digit_output <- 0
+ base_term <- 1
+ for (i in rev(seq_along(vals)))
+ {
+   if (vals[i] >= 10 && i == 1)
+   {
+     base_term <- ifelse(vals[i] > base_term, vals[i], base_term * vals[i])
+     digit_output <- digit_output + vals[i]
+   } else if (vals[i] >= 10)
+   {
+     base_term <- ifelse(vals[i] > base_term, vals[i], base_term * vals[i])
+   } else
+   {
+     digit_output <- digit_output + base_term * vals[i]
+   }
+ }
+ return(digit_output)
+}
+
+# 處理地址
+for(i in 1:nrow(shop_data)){
+  # 全形轉半形
+  shop_data$分公司地址[i] <- zen2han(as.character(shop_data$分公司地址[i]))
+
+  # 中文字轉數字
+  shop_data$分公司地址[i] <- sapply(shop_data$分公司地址[i], function(x){
+    pattern_starts <- "[零一二三四五六七八九十百千萬億]+樓"
+    if (!str_detect(x, pattern_starts))
+    return(x)
+    stairs <- str_extract(x, pattern_starts)
+    x <- str_replace(x, str_c("(\\d+)(", pattern_starts, ")"), "\\1, \\2")
+    x <- str_replace(stairs, "樓", "") %>% chinese2digits %>% str_c("樓") %>%
+    {str_replace(x, stairs, .)}
+    return(x)
+  }) %>% `names<-`(NULL)
+
+  shop_data$分公司地址[i] <- sapply(shop_data$分公司地址[i], function(x){
+    pattern_starts <- "[零一二三四五六七八九十百千萬億]+F"
+    if (!str_detect(x, pattern_starts))
+    return(x)
+    stairs <- str_extract(x, pattern_starts)
+    x <- str_replace(x, str_c("(\\d+)(", pattern_starts, ")"), "\\1, \\2")
+    x <- str_replace(stairs, "F", "") %>% chinese2digits %>% str_c("F") %>%
+    {str_replace(x, stairs, .)}
+    return(x)
+  }) %>% `names<-`(NULL)
+
+  shop_data$分公司地址[i] <- sapply(shop_data$分公司地址[i], function(x){
+    pattern_starts <- "[零一二三四五六七八九十百千萬億]+號"
+    if (!str_detect(x, pattern_starts))
+    return(x)
+    no <- str_extract(x, pattern_starts)
+    x <- str_replace(x, str_c("(\\d+)(", pattern_starts, ")"), "\\1, \\2")
+    x <- str_replace(no, "號", "") %>% chinese2digits %>% str_c("號") %>%
+    {str_replace(x, no, .)}
+    return(x)
+  }) %>% `names<-`(NULL)
+}
+
+# 異體字
+shop_data <- shop_data %>% mutate(分公司地址 = {
+  分公司地址 %>%
+  str_replace_all("台", "臺") %>%
+  str_replace_all("巿", "市")
+})
+
+# 縣轄市應算在縣底下
+shop_data <- shop_data %>% mutate(分公司地址 = {
+  分公司地址 %>%
+  str_replace_all("^竹北市", "新竹縣竹北市") %>%
+  str_replace_all("^彰化市", "彰化縣彰化市") %>%
+  str_replace_all("^員林市", "彰化縣員林市") %>%
+  str_replace_all("^苗栗市", "苗栗縣苗栗市") %>%
+  str_replace_all("^頭份市", "苗栗縣頭份市") %>%
+  str_replace_all("^南投市", "南投縣南投市") %>%
+  str_replace_all("^斗六市", "雲林縣斗六市") %>%
+  str_replace_all("^太保市", "嘉義縣太保市") %>%
+  str_replace_all("^朴子市", "嘉義縣朴子市") %>%
+  str_replace_all("^屏東市", "屏東縣屏東市") %>%
+  str_replace_all("^宜蘭市", "宜蘭縣宜蘭市") %>%
+  str_replace_all("^花蓮市", "花蓮縣花蓮市") %>%
+  str_replace_all("^臺東市", "臺東縣臺東市") %>%
+  str_replace_all("^馬公市", "澎湖縣馬公市")
+})
+# 處理直轄市改制後的名稱
+shop_data <- shop_data %>% mutate(分公司地址 = {
+  分公司地址 %>%
+  str_replace_all("臺北縣", "新北市") %>%
+  str_replace_all("桃園縣", "桃園市") %>%
+  str_replace_all("臺中縣", "臺中市") %>%
+  str_replace_all("臺南縣", "臺南市") %>%
+  str_replace_all("高雄縣", "高雄市")
+})
+
+# 取前三個字作為縣市名稱
+shop_data <- shop_data %>% mutate(city = substring(分公司地址, 0, 3))
+```
+
+備註：經上述程式整理過，大約仍有 21 筆資料對 Google Maps 來說是不可解析的。
+
+## 基本數據分析  
+### 一、四大超商數量  
+根據多數人的認知，應是 7-11 最多，由實際統計出來之數字也確實可以得到此結論，台灣的超商數量是 `7-11 > 全家 > 萊爾富 > OK`  
+```{r}
+shop_count <- shop_data %>%
+    group_by(公司名稱) %>%
+    dplyr::summarise(n = n_distinct(分公司統一編號))
+ggplot(data=shop_count, mapping=aes(x="公司名稱", y = n ,fill=公司名稱)) +
+    geom_bar(stat="identity",width = 1, size = 1,position='stack') +
+    coord_polar("y", start=0) +
+    theme_void() +
+    labs(fill='超商') +
+    geom_text(aes( label = scales::percent(n / sum(n))), position = position_stack(vjust = 0.5)) +
+    theme(text=element_text(family="黑體-繁 中黑", size=12))
+
+```
+
+### 二、縣市超商總數  
+由圖可以看出，新北市有全台最多的超商，其次為台北市，而最少的則是三個離島縣，其中又以連江縣最少。  
+```{r fig.width=10, fig.height=4}
+shop_per_city <- shop_data %>% group_by(city, 公司名稱) %>% dplyr::summarise(n = n_distinct(分公司統一編號))
+g <- ggplot(data = shop_per_city, mapping = aes(x = city, y = n, fill = shop_per_city$公司名稱)) +
+    geom_bar(stat = "identity") +
+    labs(x = '縣市', y = '數量', fill='超商') +
+    theme(text=element_text(family="黑體-繁 中黑", size=12), axis.text.x=element_text(angle=45))
+
+ggplotly(g)
+```
+
+### 三、縣市超商服務人口  
+將超商數量除以當地人口，可得每個縣市中單一超商服務之人口。由圖可之金門縣的超商大約要服務 7330 人，遠高於第二名的嘉義縣（約 3870 人），而最低的兩個縣市是台北市與新竹市，分別約 1770 人與 1630 人。  
+```{r fig.width=10, fig.height=4}
+population <- fromJSON("~/Desktop/R_Project/population.json")
+
+. <- shop_per_city %>%
+    group_by(city) %>%
+    summarise(num = sum(n))
+
+people_per_shop <- left_join(., population, by = c("city" = "city"))
+g <- ggplot(data = people_per_shop, mapping = aes(x = city, y = (population / num) / 1e2, fill = people_per_shop$city)) +
+    geom_bar(stat = "identity") +
+    labs(x = '縣市', y = '服務人口（百人）', fill='縣市') +
+    geom_text(aes(label = floor((population / num) / 10) / 10), size = 3,  position = position_stack(vjust = 0.5)) +
+    theme(text=element_text(family="黑體-繁 中黑", size=12), axis.text.x=element_text(angle=45), legend.position="none")
+
+ggplotly(g)
+```
+
+### 四、縣市超商服務範圍  
+將超商數量除以縣市面積，可得每個縣市中單一超商服務的範圍。服務面積最大的是台東、花蓮、南投，皆為幅員遼闊山多人少的縣。服務面積最小的則是台北市與新竹市。而離島因本身面積就不大，所以在此項中並沒有特別突出。  
+```{r fig.width=10, fig.height=4}
+area <- fromJSON("~/Desktop/R_Project/area.json")
+
+area_per_shop <- left_join(., area, by = c("city" = "city"))
+
+g <- ggplot(data = area_per_shop, mapping = aes(x = city, y = (area / num), fill = area_per_shop$city)) +
+    geom_bar(stat = "identity") +
+    labs(x = '縣市', y = '服務範圍（平方公里）', fill='縣市') +
+    geom_text(aes(label = floor((area / num) * 100) / 100), size = 3,  position = position_stack(vjust = 0.5)) +
+    theme(text=element_text(family="黑體-繁 中黑", size=12), axis.text.x=element_text(angle=45), legend.position="none")
+
+ggplotly(g)
+```
+
+值得注意的是，台北市與新竹市正好是台灣平均收入最高的前二名。
+
+## 地理資訊
+### 一、地圖  
+由於已經有地址了，可以直接使用 Google Map Platform 所提供的 [Geolocation API](https://developers.google.com/maps/documentation/geolocation/intro) 將其轉成經緯度，對此除了直接用 `httr` 等套件來送 HTTP Request 以外，也可以用 `ggmap` 所提供的函數來幫助完成這道程序。  
+
+P.S. 因呼叫 Google 的 API 非常耗時（大概需要接近一個半小時才把資料跑完）而且還要收費，故在此只展示程式碼並直接匯入之前的執行結果。
+
+```{r eval=FALSE}
+shop_data <- shop_data %>% mutate_geocode(分公司地址)
+```
+
+```{r include=FALSE}
+shop_data <- read.table("~/Desktop/R_Project/lonlat.csv", header = TRUE, sep = ",", encoding = "UTF-8", stringsAsFactors = FALSE)
+```
+
+附註：ggmap 在 CRAN 上的版本過舊，需要用 GitHub 的新版才能使用
+```{r eval=FALSE}
+devtools::install_github("dkahle/ggmap", ref = "tidyup")
+```
+
+完成所有地址轉經緯度後，可以在地圖上點出來。  
+```{r message=FALSE, fig.width=10, fig.height=10}
+qmplot(lon, lat, data = shop_data, maptype = "toner-lite", color = I("red"), zoom = 10)
+```  
+
+當然也可以用 Leaflet 來做圖，但因為點實在太多了，會讓瀏覽器很卡，故在此先不執行他。  
+```{r eval=FALSE}
+leaflet() %>% addTiles() %>% addMarkers(lng = shop_data$lon, lat = shop_data$lat)
+```
+
+由地圖可以得知超商多半分布在西部，東部相對較少，而中間的山區則幾乎完全沒有超商，幾個零星的點多半是觀光區。  
+
+### 二、平均步行時間
+接著評估，對於某個縣市而言，最近的超商大概要走多久。其作法大致如下：  
+1. 在特定區域裡面任意抓取 N 個點（N 越大越好，在此設 N = 200）  
+2. 對於第 i 個點，以歐幾里得距離（因查詢範圍很小，故經緯度會接近於直角座標系），從一萬多家超商之中選出最近的一點  
+3. 依常理來看，直線距離最近的超商多半也會是走路所需時間最短的，故直接假設該點為最近的超商  
+4. 使用 [Google Distance Matrix API](https://developers.google.com/maps/documentation/distance-matrix/intro) 來獲取走路所需時間  
+5. 將 Step 2 ~ 4 重複做 N 次並取平均值  
+
+然而由於 Google 的 API 有使用次數限制，為了減少使用次數，在此只對於台北、雲林嘉義、宜蘭三個地區做查詢。同上，考量到呼叫時間過長而且額度有限，故在此只附上之前執行的結果。  
+
+```{r eval=FALSE}
+# 臺北: 25.108215, 121.451381   24.989190, 121.570576
+travel_time_taipei <- c()
+for(i in 1:200){
+    lon <- runif(1, min=121.451381, max=121.570576)
+    lat <- runif(1, min=24.989190, max=25.108215)
+    dis <- (shop_data$lon - lon) ^ 2 + (shop_data$lat - lat) ^ 2
+    . <- mapdist(as.numeric(c(lon, lat)), c(shop_data$分公司地址[which.min(dis)]), mode="walking")
+    if(is.numeric(.$seconds)) travel_time_taipei <- c(travel_time_taipei, .$seconds)
+}
+
+
+# 雲林嘉義 23.824379, 120.251754   23.405572, 120.486646
+travel_time_yunlin_chiayi <- c()
+for(i in 1:200){
+    lon <- runif(1, min=121.451381, max=121.570576)
+    lat <- runif(1, min=24.989190, max=25.108215)
+    dis <- (shop_data$lon - lon) ^ 2 + (shop_data$lat - lat) ^ 2
+    . <- mapdist(as.numeric(c(lon, lat)), c(shop_data$分公司地址[which.min(dis)]), mode="walking")
+    if(is.numeric(.$seconds)) travel_time_yunlin_chiayi <- c(travel_time_yunlin_chiayi, .$seconds)
+}
+
+# 宜蘭 24.614054, 121.805200  24.786233, 121.654558
+travel_time_yilan <- c()
+for(i in 1:200){
+    lon <- runif(1, min=121.451381, max=121.570576)
+    lat <- runif(1, min=24.989190, max=25.108215)
+    dis <- (shop_data$lon - lon) ^ 2 + (shop_data$lat - lat) ^ 2
+    . <- mapdist(as.numeric(c(lon, lat)), c(shop_data$分公司地址[which.min(dis)]), mode="walking")
+    if(is.numeric(.$seconds)) travel_time_yilan <- c(travel_time_yilan, .$seconds)
+}
+```
+
+```
+> mean(travel_time_taipei) / 60
+[1] 11.16658
+> mean(travel_time_yilan) / 60
+[1] 37.96325
+> mean(travel_time_yunlin_chiayi) / 60
+[1] 36.93573
+> median(travel_time_taipei) / 60
+[1] 3.666667
+> median(travel_time_yilan) / 60
+[1] 21.35833
+> median(travel_time_yunlin_chiayi) / 60
+[1] 29.48333
+```
+
+由上可知，在台北，平均走 11 分鐘就能到超商，雖然看起來很長，但中位數為 3.6 分鐘，相當於有一半的地方腳程四分鐘內有超商。而到了宜蘭，則是平均約 35 分鐘，中位數 21 分鐘，在雲林嘉義，平均要走 37 分鐘才能到最近的超市，中位數也有 29 分鐘，皆遠超過台北。
+
+由上述資料可知，台北的生活機能（至少以超商分布來說），仍優於台灣其他地方，與多數認知相符，且由地圖上以及圖表中亦可看出台灣超商分布的城鄉差距十分嚴重。
